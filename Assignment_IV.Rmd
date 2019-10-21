@@ -1,0 +1,343 @@
+---
+title: "Assignment IV"
+author: "Harika Panuganty"
+date: "February 27, 2019"
+output: html_document
+---
+
+> Please submit your answers by 5.59 pm Monday March 4, 2019
+
+
+## Question 1: Prediction using Logistic Regression
+We are going to perform perdiction on a voting dataset (files->assignments->assignment_4). The dataset contains the  party affliation of 435 congressional members along with voting record on 16 issues that were put to vote in a single year. The party affliation is indicated as a binary variable as a 1 if the congress-person was a member of the 'A' party and 0 otherwise. The vote is indicated as 1 (if the member voted yes) and 0 (if ithe member voted no).
+
+a) You will notice that the class-split is fairly even in the dataset.
+
+0 : 168 members
+1 : 267 members
+
+Using caret, create a rough 80-20 split of the dataset into training and testing. In other words, 80% of the data should comprise the training dataset and 20% of the data should comprise the testing dataset. Ensure that the class membership is even (in other words, the proportion of 1 and 0 in both training and testing should be the approximately the same)
+
+
+NOTE: Set the seed to 476
+
+```{r}
+# Insert your code below
+rm(list=ls())
+library(plyr) 
+library(dplyr) 
+library(pROC)
+library(caret)
+
+data_votes <- read.csv("~/Desktop/data_votes.csv", header = TRUE)
+data_votes <- data_votes %>%
+  mutate_if(is.numeric,as.factor)
+#change party_A to factor
+#data_votes$party_A <- as.factor(data_votes$party_A)
+
+set.seed(476)
+#to create the 80-20 split
+data_index <- createDataPartition(data_votes$party_A, p=.8, list = FALSE, times=1)
+
+head(data_index) #to double check
+
+data_votes.train <- data_votes[data_index,]
+data_votes.test <- data_votes[-data_index,]
+
+summary(as.factor(data_votes.train$party_A))
+summary(as.factor(data_votes.test$party_A))
+```
+
+b) Perform a logistic regression (using glm) on the training dataset and perform a prediction on the test dataset. 
+
+```{r}
+# Insert your code below
+#Logistic regression on dataset
+
+data_votes.train.log <- glm(party_A~., data=data_votes.train, family="binomial")
+
+#Perform prediction on test dataset
+data_votes.test$pred_party_A <- predict.glm(data_votes.train.log, newdata = data_votes.test, type="response")
+```
+
+
+c) Fill the confusion matrix below using your predictions. Consider outcome 1 as being "positive" and a probability cutoff of 0.5 (i.e. if probability >= 0.5, assign the label 1). 
+
+```{r}
+# Insert your code below
+#Note we create new variable pred_party_A1 to prevent values from b) overriding the values in c)
+data_votes.test$pred_party_A1 <- ifelse(data_votes.test$pred_party_A >= 0.5,1,0)
+
+#True positive TP 
+tp <- data_votes.test %>%
+  filter(party_A == 1 & pred_party_A1 == 1) %>% nrow()
+print(tp)
+cat("True positive TP:", tp,"\n")
+
+#True negative TN 
+tn <- data_votes.test %>%
+  filter(party_A == 0 & pred_party_A1 == 0) %>% nrow()
+print(tn)
+cat("True negative TN:", tn,"\n")
+    
+#False positive FP
+fp <- data_votes.test %>%
+  filter(party_A == 0 & pred_party_A1 == 1) %>% nrow()
+print(fp)
+cat("False positive FP:", fp,"\n")
+    
+#False negative FN 
+fn <- data_votes.test %>%
+  filter(party_A == 1 & pred_party_A1 == 0) %>% nrow()
+print(fn)
+cat("False negative FN:", fn,"\n")
+
+
+```
+
+Table        |  Actual_positive | Actual_negative
+-------------|------------------|----------------
+Pred_positive|    50            |       0
+Pred_negative(FN)| 3            |       33
+  
+  
+d) Calculate the following: Sensitivity, Specificity, Positive Predictive Value, Negative Predictive Value, False Positive Rate, and Accuracy.
+
+```{r, echo=FALSE}
+# Insert code below
+#Sensitivity (TPR) = 0.9433962
+#among true values, measures how many were correctly predicted
+tp/(tp+fn)
+cat("Sensitivity TPR:", tp/(tp+fn),"\n")
+
+#Specificity (1-FPR) = 1
+#among false values, measures how many were correctly predicted
+tn/(tn+fp)
+cat("Specificity (1-FPR):", tn/(tn+fp),"\n")
+
+#Positive Predictive Value (PPV) = 1
+#true positive results, want this to be high since it measures performance
+tp/(tp+fp)
+cat("Positive Predictive Value PPV:", tp/(tp+fp),"\n")
+
+#Negative Predictive Value (NPV) = 0.9166667
+#true negative results, want this to be high since it measures performance 
+tn/(fn+tn)
+cat("Negative Predictive Value NPV:", tn/(fn+tn),"\n")
+
+#False Positive Rate (FPR) = 0
+#probability of falsely rejecting null hypothesis
+1-(tn/(tn+fp))
+cat("False Positive Rate FPR:", 1-(tn/(tn+fp)),"\n")
+
+#Accuracy = 0.5813953
+(tp+tn)/(tp+tn+fp+fn)
+cat("Accuracy:", (tp+tn)/(tp+tn+fp+fn),"\n")
+
+```
+
+e) Calculate AUC (with 95% CI) using predicted probabilities
+
+```{r}
+# Insert code below
+#First create a prediction object
+pred <- roc(response = data_votes.test$party_A, predictor = data_votes.test$pred_party_A, direction = "<")
+
+#Get AUC performance = 0.9716981
+auc_perf <- auc(pred)
+cat("AUC: ", auc_perf, "\n")
+
+#AUC 95% CI = 0.940294 0.9716981 1
+ci_auc_perf <- ci.auc(pred)
+cat("95% CI: ", ci_auc_perf, "\n")
+
+```
+
+## Question 2: Cross-validation
+Write a program that will perform 3-fold cross-validation (using the caret package) on the above train dataset. Calculate AUC (with 95% CI) on the test dataset. 
+
+NOTE : Set your seed as 156
+
+```{r}
+# Insert code here
+library(plyr)
+library(dplyr)
+library(caret)
+library(pROC)
+
+set.seed(156)
+training_params <- trainControl(method="cv", number=3)
+
+#Training
+data_votes.glm <- train(as.factor(party_A) ~., data=data_votes.train, method = "glm", trControl = training_params)
+
+#summary(data_votes.glm)
+
+#Prediction using caret
+votes_yhat_glm <- predict(data_votes.glm, newdata = data_votes.test, type = "prob")
+
+#Create a prediction object
+votes_glm.pred <- roc(predictor = votes_yhat_glm[,2],
+response = data_votes.test$party_A, direction = "<")
+
+# Get performance
+AUC <- auc(votes_glm.pred) 
+CI_AUC <- ci.auc(votes_glm.pred)
+cat("AUC:",AUC,"\n")
+cat("95%CI:", CI_AUC, "\n")
+```
+
+
+## Question 3: Hierarchical clustering
+We are going to use the USArrests dataset. Load this using the following command 
+```{r}
+rm(list=ls())
+library(datasets)
+d.in <- data.frame(USArrests)
+#to remove missing values present in data use the following
+#d.in <- na.omit(df)
+```
+
+(a) Perform hierarchical clustering using average linkage and Euclidean distance. Write the code and show the plots below.
+
+Ans.
+```{r,message=FALSE, warning=FALSE}
+# Insert code here
+# Using Euclidean distance
+USArrest_in <- dist(d.in, method = "euclidean")
+USArrest_temp_matrix <- as.matrix(USArrest_in)
+print(USArrest_temp_matrix[1:6,1:6])
+
+#Euclidean distance plot
+USArrest_euclidean <- dist(USArrest_in, method = "euclidean")
+plot(USArrest_euclidean, main="Euclidean Distance")
+
+#Average linkage plot
+USArrest_average.h_in <- hclust(USArrest_in, method="average")
+plot(USArrest_average.h_in, main="Average Linkage Cluster Dendogram")
+
+```
+
+(b) Perform hierarchical clustering using complete linkage and Euclidean distance, after scaling the variables to have a standard deviation of one. Write the code and show the plots below. 
+```{r}
+# Insert code here
+d.in.scale <- as.data.frame(scale(d.in))
+summary(d.in.scale)
+
+USArrest_in_scale <- dist(d.in.scale, method="euclidean")
+USArrest_temp_matrix_scale <- as.matrix(USArrest_in_scale)
+print(USArrest_temp_matrix_scale[1:6,1:6])
+
+#sd(d.in.scale$Assault) to confirm our std dev is 1
+
+#Euclidean distance plot scaled
+USArrest_euclidean_scale <- dist(USArrest_in_scale, method = "euclidean")
+plot(USArrest_euclidean_scale, main="Scaled Euclidean distance")
+
+#Average linkage plot scaled
+USArrest_average.h_in_scale <- hclust(USArrest_in_scale, method="complete")
+plot(USArrest_average.h_in_scale, main="Scaled Average linkage Cluster Dendogram")
+
+```
+
+
+## Question 4: K-means clustering
+Download the dataset kmeans_data.csv (Files->Assignments->Assignment_4).  The dataset contains randomly generated 100 observations of 2 variables, viz., X1 and X2
+
+(a) Plot X1 vs. X2 (i.e. X1 on the x-axis) as a scatter-plot. Write the code below.
+```{r}
+# Insert code
+rm(list=ls())
+kmeans_data <- read.csv("~/Desktop/kmeans_data.csv", header = TRUE)
+
+plot(x=kmeans_data$X1, y=kmeans_data$X2, type = "p", col="black", pch=1, cex=2, xlab="X1", ylab="X2", main="Plot X1 vs X2")
+
+#pch changes shape and cex is size of shape
+```
+
+
+(b) Perform a k-means clustering with $K$ = 3. Overlap the cluster labels on the scatter plot.
+```{r}
+# Insert code
+set.seed(451)
+kmeans_data.in <- kmeans(kmeans_data,centers=3)
+plot(kmeans_data$X1, kmeans_data$X2, col=kmeans_data.in$cluster, pch=1, cex=1, main="K-means clustering (K=3)")
+text(kmeans_data$X1, kmeans_data$X2, labels=kmeans_data.in$cluster,pos=4)
+points(kmeans_data.in$centers, col=1:3, pch=3, cex=3, lwd=3)
+
+kmeans_data.in$tot.withinss #distance of points within cluster, we want a low value 
+kmeans_data.in$betweenss #distance between the clusters, we want this value to be high 
+
+```
+
+(c) Perform a k-means clustering with $K$ = 4. Overlap the cluster labels on the scatter plot.
+```{r}
+# Insert code 
+set.seed(451)
+kmeans_data.in.2 <- kmeans(kmeans_data,centers=4)
+plot(kmeans_data$X1, kmeans_data$X2, col=kmeans_data.in.2$cluster, pch=1, cex=1, main="K-means clustering (K=4)")
+text(kmeans_data$X1, kmeans_data$X2, labels=kmeans_data.in.2$cluster,pos=4)
+points(kmeans_data.in.2$centers, col=1:4, pch=3, cex=4, lwd=4)
+
+kmeans_data.in.2$tot.withinss #distance of points within cluster, we want a low value 
+kmeans_data.in.2$betweenss #distance between the clusters, we want this value to be high 
+
+```
+
+(d) Which is a better $K$?      
+Ans. Compared to the tot.withinss and betweenss values of K=3, K=4 has a lower tot.withinss value (distance between each point within a cluster) and a higher betweenss value (distance between the clusters) and because of those values K=4 is better.  
+
+K=3 
+tot.withinss 219.1554
+betweenss 1771.599 
+
+K=4 
+tot.withinss 197.9767
+betweenss 1792.778
+
+
+## Question 5: Similarity Metrics
+You are given the the following distance matrix that describes the euclidean distance between cities.
+
+Table     | BOS | NY  | DC  | CHI
+----------|-----|-----|-----|-----
+BOS       |  0  | 206 | 429 | 963
+NY        | 206 |  0  | 233 | 802
+DC        | 429 | 233 |  0  | 671
+CHI       | 963 | 802 | 671 |  0
+
+You are asked to perform a hierarchical clustering using single linkage. 
+
+The nearest pair of cities is BOS and NY, at distance 206. 
+
+(a) Re-calculate the distance-matrix based on the merged group BOS/NY. 
+
+Ans. Calculations: 
+min[dist(BOS,NY) DC]
+min[429,233] = 233
+   B-DC, NY-DC
+   
+min[dist(BOS,NY) CHI]
+min[963,802] = 802
+   B-CHI NY-CHI 
+   
+I changed the values and created the table shown below
+
+Table     | (BOS/NY)  | DC  | CHI
+----------|-----|-----|-----|-----
+(BOS/NY)  |      0    | 233 | 802
+DC        |     233   |  0  | 671
+CHI       |     802   | 671 |  0
+
+
+Ans. Calculations: 
+min[dist((BOS/NY,DC), CHI)]
+min(802,671) = 671
+
+I changed the value and created the table shown below with two clusters
+
+Table      | (BOS/NY, DC) | CHI
+---------- |--------------------
+(BOS/NY,DC)|      0       | 671 
+CHI        |     671      | 0
+
